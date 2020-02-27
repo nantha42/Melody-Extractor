@@ -8,11 +8,14 @@ def read_midi(name):
     :param name: mid file name
     :return: a list of pianorolls for the tracks in the midi file
     """
-    multitrack = Multitrack(name)
-    pyrolls = []
-    for track in multitrack.tracks:
-        pyrolls.append(track.pianoroll)
-    return pyrolls
+    try:
+        multitrack = Multitrack(name)
+        pyrolls = []
+        for track in multitrack.tracks:
+            pyrolls.append(track.pianoroll)
+        return pyrolls
+    except:
+        print("Error in Midi file, likes corrupt")
 
 
 def parse_track(roll):
@@ -144,12 +147,11 @@ def play_notes(roll, loc, trackname):
     tracker = Track(pianoroll=pianoroll, program=1)
     tracks.append(tracker)
     multitrack = Multitrack(tracks=tracks)
-    save_time = str(time.time())[-5:]
 
     # print(save_time, )
     if len(np.nonzero(pianoroll)[0]) > 0:
         # for preventing writing empty midi tracks
-        multitrack.write(loc + trackname + save_time)
+        multitrack.write(loc + trackname)
 
 
 def is_chord(pyroll):
@@ -170,7 +172,7 @@ def is_chord(pyroll):
         ratio = mul_notes_count / sin_notes_count
 
     if ratio > 0.9:
-        print("ratio", ratio)
+        # print("ratio", ratio)
         return True
     else:
         return False
@@ -194,8 +196,8 @@ def max_keys_used(pyroll, maxkeys, notes_count):
             notes_used.add(pos[0])
             notes.append(pos[0])
             note_count += 1
-    print("Notes Used", notes_used)
-    print(len(notes))
+    # print("Notes Used", notes_used)
+    # print(len(notes))
 
     if maxkeys > len(notes_used):
         return False
@@ -214,15 +216,15 @@ def split_track(roll, keyrange):
         if len(non_zeros) > 0:
             startindex = i
             break
-    print("StartIndex",startindex)
+    # print("StartIndex",startindex)
     splits = []
     i = startindex
     gap = False
     gap_started = 0
-    print(roll.shape[1])
+    # print(roll.shape[1])
     while i < roll.shape[1]:
         # print(roll,i)
-        print(splits)
+        # print(splits)
         i = int(i)
         time_row = roll[:, i]
         q = time_row + 1
@@ -233,22 +235,22 @@ def split_track(roll, keyrange):
         # print(time_row)
         # print(i)
         if len(non_zeros) > 0:
-            print("If Executed",i,non_zeros,gap,gap_started)
+            # print("If Executed",i,non_zeros,gap,gap_started)
             if gap:
                 if i - gap_started < 2 * 32:
                     splits.pop(len(splits) - 1)
-                    #print("Popped")
+                    # print("Popped")
                 else:
-                    print("Started again")
+                    # print("Started again")
                     startindex = i
                 gap = False
                 gap_started = 0
-            #print("before",i,time_row[non_zeros[0]])
+            # print("before",i,time_row[non_zeros[0]])
             i += 2 ** time_row[keyrange[0] + non_zeros[0]]
-            #print("after", i)
+            # print("after", i)
 
         else:
-            print("Else executed",i)
+            # print("Else executed",i)
             if not gap:
                 gap = True
                 splits.append([startindex, i])
@@ -257,20 +259,21 @@ def split_track(roll, keyrange):
             elif gap == True:
                 i += 1
 
-    if len(splits) ==0:
+    if len(splits) == 0:
         if startindex != i:
-            print(startindex,i-startindex)
-            splits.append([startindex,i-startindex])
-    print("Splitted Length", len(splits))
+            # print(startindex,i-startindex)
+            splits.append([startindex, i - startindex])
+    # print("Splitted Length", len(splits))
     for split in splits:
-        j = np.array(roll[:, int(split[0]):int(split[1]) ])
+        j = np.array(roll[:, int(split[0]):int(split[1])])
         # j[24:48] = -1
         splitted.append(j)
-    print(len(splitted))
+    # print(len(splitted))
     return splitted
 
 
-def identify_melody_tracks(pyrolls, track_name, nnotes=5, max_cons=4, filter_chords=True, max_cons_duration=(5, 3)):
+def identify_melody_tracks(pyrolls, track_name, nnotes=5, max_cons=4, filter_chords=True, max_cons_duration=(5, 3),
+                           save_numpy=False):
     """
     :param pyrolls:
     :param nnotes:
@@ -289,7 +292,7 @@ def identify_melody_tracks(pyrolls, track_name, nnotes=5, max_cons=4, filter_cho
     index = 0
     for roll in pyrolls:
         # print(index)
-        print("Roll",index)
+        # print("Roll",index)
         index += 1
         chord = True
         modified_track = parse_track(roll)
@@ -297,25 +300,27 @@ def identify_melody_tracks(pyrolls, track_name, nnotes=5, max_cons=4, filter_cho
 
         # print(roll[0])
         if not is_chord(roll):
-            print("Max",max_keys_used(roll,5,5))
+
             filtered_rolls.append(roll)
-            # if len(np.nonzero(roll + 1)) > 0:
-            # print(len(np.nonzero(roll + 1)))
             chord = False
 
-            print("Length", len(np.nonzero(roll + 1)[0]))
             splitted1 = split_track(roll, [0, 24])
             splitted2 = split_track(roll, [24, 48])
 
-            print("Splitted", len(splitted1))
             for splits in splitted1:
-                if max_keys_used(splits, 5, 5):
-                    save_roll_as_mid(splits, "../extracted/melody/high/", track_name)
+                if max_keys_used(splits, maxkeys=8, notes_count=5):
+                    timed = str(time.time())[-5:]
+                    save_roll_as_mid(splits, "extracted/melody/high/", track_name + str(timed))
+                    if save_numpy == True:
+                        np.savez_compressed("extracted/melody/high_npy/" + track_name + timed, splits)
 
-            print("Splitted", len(splitted2))
             for splits in splitted2:
-                if max_keys_used(splits, 5, 5):
-                    save_roll_as_mid(splits, "../extracted/melody/low/", track_name)
+                if max_keys_used(splits, maxkeys=8, notes_count=5):
+                    timed = str(time.time())[-5:]
+                    save_roll_as_mid(splits, "extracted/melody/low/", track_name + timed)
+                    if save_numpy == True:
+                        np.savez_compressed("extracted/melody/low_npy/" + track_name + timed, splits)
+
         if chord:
             # save_roll_as_mid(roll, "extracted/chords/")
             pass
